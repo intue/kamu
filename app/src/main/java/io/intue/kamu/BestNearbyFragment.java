@@ -403,10 +403,12 @@ public class BestNearbyFragment extends Fragment implements
 
     @Override
     public void onLoadFinished(Loader<Cursor> loader, Cursor cursor) {
-        /*
+
         if (getActivity() == null) {
             return;
         }
+
+        /*
 
         int token = loader.getId();
         LOGD(TAG, "Loader finished: "  + (token == SessionsQuery.NORMAL_TOKEN ? "sessions" :
