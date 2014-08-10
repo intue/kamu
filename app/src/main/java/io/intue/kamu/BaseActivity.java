@@ -730,4 +730,9 @@ public abstract class BaseActivity extends Activity implements
     }
 
 
+    public LPreviewUtilsBase getLPreviewUtils() {
+        return mLPreviewUtils;
+    }
+
+
 }

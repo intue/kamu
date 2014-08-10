@@ -34,6 +34,7 @@ public class BestNearbyActivity extends BaseActivity implements BestNearbyFragme
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_best_nearby);
 
+        getLPreviewUtils().trySetActionBar();
         ActionBar ab = getActionBar();
 
         overridePendingTransition(0, 0);
