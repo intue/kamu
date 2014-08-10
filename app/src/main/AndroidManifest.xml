@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="io.intue.kamu" >
+
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.READ_SYNC_STATS" />
+    <!-- required for setIsSyncable -->
+    <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:allowBackup="true"
@@ -32,6 +41,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Data, sync and schedule editing components -->
+
+        <provider
+            android:name=".provider.ScheduleProvider"
+            android:authorities="io.intue.kamu"
+            android:writePermission="io.intue.kamu.permission.WRITE_SCHEDULE"
+            android:syncable="true"
+            android:label="@string/app_name"
+            android:exported="true" />
+
+        <service android:name=".sync.SyncService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data android:name="android.content.SyncAdapter"
+                android:resource="@xml/syncadapter" />
+        </service>
     </application>
 
 </manifest>
