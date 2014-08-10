@@ -26,6 +26,7 @@ import android.content.Loader;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -46,6 +47,18 @@ import android.widget.Toast;
 
 import com.bumptech.glide.GenericRequestBuilder;
 import com.bumptech.glide.ListPreloader;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.StatusLine;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import io.intue.kamu.model.TagMetadata;
 import io.intue.kamu.provider.ScheduleContract;
 import io.intue.kamu.widget.CollectionView;
@@ -53,10 +66,18 @@ import io.intue.kamu.widget.CollectionViewCallbacks;
 import io.intue.kamu.widget.MessageCardView;
 import io.intue.kamu.util.*;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.TimeZone;
 
 import static io.intue.kamu.util.LogUtils.LOGD;
@@ -72,11 +93,13 @@ import static io.intue.kamu.util.UIUtils.buildStyledSnippet;
  * filters or a search query.
  */
 public class BestNearbyFragment extends Fragment implements
-        LoaderManager.LoaderCallbacks<Cursor>, CollectionViewCallbacks {
+        CollectionViewCallbacks {
 
     private static final String TAG = makeLogTag(BestNearbyFragment.class);
 
-    /** The number of rows ahead to preload images for */
+    /**
+     * The number of rows ahead to preload images for
+     */
     private static final int ROWS_TO_PRELOAD = 2;
 
     private Bundle mArguments;
@@ -89,6 +112,8 @@ public class BestNearbyFragment extends Fragment implements
 
     private Uri mCurrentUri = ScheduleContract.Sessions.CONTENT_URI;
 
+    private static final int HERO_GROUP_ID = 123;
+
     // the cursor whose data we are currently displaying
     private int mSessionQueryToken;
 
@@ -97,8 +122,17 @@ public class BestNearbyFragment extends Fragment implements
     // have been changed); if not, it's just a refresh because data has changed.
     private boolean mSessionDataIsFullReload = false;
 
-    private Cursor mCursor;
-    private boolean mIsSearchCursor;
+
+    private static Callbacks sDummyCallbacks = new Callbacks() {
+        @Override
+        public void onSessionSelected(String sessionId, View clickedView) {}
+
+        @Override
+        public void onTagMetadataLoaded(TagMetadata metadata) {}
+    };
+
+    private Callbacks mCallbacks = sDummyCallbacks;
+
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -108,6 +142,7 @@ public class BestNearbyFragment extends Fragment implements
             mImageLoader = new ImageLoader(this.getActivity());
         }
     }
+
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
@@ -122,73 +157,259 @@ public class BestNearbyFragment extends Fragment implements
 
     @Override
     public View newCollectionHeaderView(Context context, ViewGroup parent) {
-        return null;
+        LayoutInflater inflater = (LayoutInflater) context.getSystemService(
+                Context.LAYOUT_INFLATER_SERVICE);
+        return inflater.inflate(R.layout.list_item_explore_header, parent, false);
     }
 
     @Override
-    public void bindCollectionHeaderView(Context context, View view, int groupId, String headerLabel) {
-
+    public void bindCollectionHeaderView(Context context, View view, int groupId, String groupLabel) {
+        TextView tv = (TextView) view.findViewById(android.R.id.text1);
+        if (tv != null) {
+            tv.setText(groupLabel);
+        }
     }
 
     @Override
     public View newCollectionItemView(Context context, int groupId, ViewGroup parent) {
-        return null;
+        final LayoutInflater inflater = (LayoutInflater) context.getSystemService(
+                Context.LAYOUT_INFLATER_SERVICE);
+        int layoutId;
+
+        layoutId = (groupId == HERO_GROUP_ID) ? R.layout.list_item_session_hero :
+                R.layout.list_item_session_summarized;
+
+        return inflater.inflate(layoutId, parent, false);
     }
 
     @Override
     public void bindCollectionItemView(Context context, View view, int groupId, int indexInGroup, int dataIndex, Object tag) {
+//        if (mCursor == null || !mCursor.moveToPosition(dataIndex)) {
+//            LOGW(TAG, "Can't bind collection view item, dataIndex=" + dataIndex +
+//                    (mCursor == null ? ": cursor is null" : ": bad data index."));
+//            return;
+//        }
 
-    }
-
-    @Override
-    public Loader<Cursor> onCreateLoader(int id, Bundle bundle) {
-        LOGD(TAG, "onCreateLoader, id=" + id + ", data=" + bundle);
-        final Intent intent = BaseActivity.fragmentArgumentsToIntent(bundle);
-        Uri sessionsUri = intent.getData();
-
-        Loader<Cursor> cursorLoader = null;
-
-        cursorLoader = new CursorLoader(getActivity(), sessionsUri, SessionsQuery.SEARCH_PROJECTION,
-                null, null, ScheduleContract.Sessions.SORT_BY_TYPE_THEN_TIME);
-
-        return cursorLoader;
-    }
-
-    @Override
-    public void onLoadFinished(Loader<Cursor> cursorLoader, Cursor cursor) {
-        if (getActivity() == null) {
+        final String sessionId = "SessionID";
+        if (sessionId == null) {
             return;
         }
 
-        int token = cursorLoader.getId();
+        // first, read session info from cursor and put it in convenience variables
+        final String sessionTitle = "SessionsQuery.TITLE";
+        final String speakerNames = "SessionsQuery.SPEAKER_NAMES";
+        final String sessionAbstract = "SessionsQuery.ABSTRACT";
+        final long sessionStart = 44454544;
+        final long sessionEnd = 334343433;
+        final String roomName = "SessionsQuery.ROOM_NAME";
+        int sessionColor = 0;
+        sessionColor = sessionColor == 0 ? getResources().getColor(R.color.default_session_color)
+                : sessionColor;
+        final String snippet = "SessionsQuery.SNIPPET";
+        final Spannable styledSnippet =  null;
+        final boolean starred = false;
+        final String[] tags = "A,B,C".split(",");
 
-        mCursor = cursor;
-        mIsSearchCursor = token == SessionsQuery.SEARCH_TOKEN;
-        LOGD(TAG, "Cursor has " + mCursor.getCount() + " items. Will now update collection view.");
-        updateCollectionView();
+        // now let's compute a few pieces of information from the data, which we will use
+        // later to decide what to render where
+        final boolean hasLivestream = false;
+        final long now = UIUtils.getCurrentTime(context);
+        final boolean happeningNow = now >= sessionStart && now <= sessionEnd;
 
+        // text that says "LIVE" if session is live, or empty if session is not live
+        final String liveNowText = hasLivestream ? " " + UIUtils.getLiveBadgeText(context,
+                sessionStart, sessionEnd) : "";
+
+        // get reference to all the views in the layout we will need
+        final TextView titleView = (TextView) view.findViewById(R.id.session_title);
+        final TextView subtitleView = (TextView) view.findViewById(R.id.session_subtitle);
+        final TextView shortSubtitleView = (TextView) view.findViewById(R.id.session_subtitle_short);
+        final TextView snippetView = (TextView) view.findViewById(R.id.session_snippet);
+        final TextView abstractView = (TextView) view.findViewById(R.id.session_abstract);
+        final TextView categoryView = (TextView) view.findViewById(R.id.session_category);
+        final View boxView = view.findViewById(R.id.info_box);
+        final View sessionTargetView = view.findViewById(R.id.session_target);
+
+        if (sessionColor == 0) {
+            // use default
+            sessionColor = getResources().getColor(R.color.default_session_color);
+        }
+        sessionColor = UIUtils.scaleSessionColorToDefaultBG(sessionColor);
+
+        ImageView photoView = (ImageView) view.findViewById(R.id.session_photo_colored);
+        if (photoView != null) {
+            if (!mPreloader.isDimensSet()) {
+                final ImageView finalPhotoView = photoView;
+                photoView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mPreloader.setDimens(finalPhotoView.getWidth(), finalPhotoView.getHeight());
+                    }
+                });
+            }
+            // colored
+            photoView.setColorFilter(UIUtils.setColorAlpha(sessionColor,
+                    UIUtils.SESSION_PHOTO_SCRIM_ALPHA));
+        } else {
+            photoView = (ImageView) view.findViewById(R.id.session_photo);
+        }
+        ((BaseActivity) getActivity()).getLPreviewUtils().setViewName(photoView,
+                "photo_" + sessionId);
+
+
+
+        // when we load a photo, it will fade in from transparent so the
+        // background of the container must be the session color to avoid a white flash
+        ViewParent parent = photoView.getParent();
+        if (parent != null && parent instanceof View) {
+            ((View) parent).setBackgroundColor(sessionColor);
+        } else {
+            photoView.setBackgroundColor(sessionColor);
+        }
+
+        String photo = "http://sereedmedia.com/srmwp/wp-content/uploads/kitten.jpg";
+        if (!TextUtils.isEmpty(photo)) {
+            mImageLoader.loadImage(photo, photoView, true /*crop*/);
+        } else {
+            // cleaning the (potentially) recycled photoView, in case this session has no photo:
+            photoView.setImageDrawable(null);
+        }
+
+        // render title
+        titleView.setText(sessionTitle == null ? "?" : sessionTitle);
+
+        // render subtitle into either the subtitle view, or the short subtitle view, as available
+        if (subtitleView != null) {
+            subtitleView.setText("subtitleView");
+        } else if (shortSubtitleView != null) {
+            shortSubtitleView.setText("shortSubtitleView");
+        }
+
+        // render category
+//        if (categoryView != null) {
+//            TagMetadata.Tag groupTag = mTagMetadata.getSessionGroupTag(tags);
+//            if (groupTag != null && !Config.Tags.SESSIONS.equals(groupTag.getId())) {
+//                categoryView.setText(groupTag.getName());
+//                categoryView.setVisibility(View.VISIBLE);
+//            } else {
+//                categoryView.setVisibility(View.GONE);
+//            }
+//        }
+
+        // if a snippet view is available, render the session snippet there.
+        if (snippetView != null) {
+            //if (mIsSearchCursor) {
+                // render the search snippet into the snippet view
+                snippetView.setText(styledSnippet);
+//            } else {
+//                // render speaker names and abstracts into the snippet view
+//                mBuffer.setLength(0);
+//                if (!TextUtils.isEmpty(speakerNames)) {
+//                    mBuffer.append(speakerNames).append(". ");
+//                }
+//                if (!TextUtils.isEmpty(sessionAbstract)) {
+//                    mBuffer.append(sessionAbstract);
+//                }
+//                snippetView.setText(mBuffer.toString());
+//            }
+        }
+
+//        if (abstractView != null && !mIsSearchCursor) {
+//            // render speaker names and abstracts into the abstract view
+//            mBuffer.setLength(0);
+//            if (!TextUtils.isEmpty(speakerNames)) {
+//                mBuffer.append(speakerNames).append("\n\n");
+//            }
+//            if (!TextUtils.isEmpty(sessionAbstract)) {
+//                mBuffer.append(sessionAbstract);
+//            }
+//            abstractView.setText(mBuffer.toString());
+//        }
+
+        // in expanded mode, the box background color follows the session color
+        //if (useExpandedMode()) {
+            boxView.setBackgroundColor(sessionColor);
+        //}
+
+        // show or hide the "in my schedule" indicator
+        view.findViewById(R.id.indicator_in_schedule).setVisibility(starred ? View.VISIBLE
+                : View.INVISIBLE);
+
+        // if we are in condensed mode and this card is the hero card (big card at the top
+        // of the screen), set up the message card if necessary.
+        if (groupId == HERO_GROUP_ID) {
+            // this is the hero view, so we might want to show a message card
+            final boolean cardShown = setupMessageCard(view);
+
+            // if this is the wide hero layout, show or hide the card or the session abstract
+            // view, as appropriate (they are mutually exclusive).
+            final View cardContainer = view.findViewById(R.id.message_card_container_wide);
+            final View abstractContainer = view.findViewById(R.id.session_abstract);
+            if (cardContainer != null && abstractContainer != null) {
+                cardContainer.setVisibility(cardShown ? View.VISIBLE : View.GONE);
+                abstractContainer.setVisibility(cardShown ? View.GONE : View.VISIBLE);
+                abstractContainer.setBackgroundColor(sessionColor);
+            }
+        }
+
+        // if this session is live right now, display the "LIVE NOW" icon on top of it
+        View liveNowBadge = view.findViewById(R.id.live_now_badge);
+        if (liveNowBadge != null) {
+            liveNowBadge.setVisibility(happeningNow && hasLivestream ? View.VISIBLE : View.GONE);
+        }
+
+        // if this view is clicked, open the session details view
+        final View finalPhotoView = photoView;
+        sessionTargetView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mCallbacks.onSessionSelected(sessionId, finalPhotoView);
+            }
+        });
+
+        // animate this card
+//        if (dataIndex > mMaxDataIndexAnimated) {
+//            mMaxDataIndexAnimated = dataIndex;
+//        }
     }
 
-    private void updateCollectionView() {
-        if (mCursor == null) {
-            LOGD(TAG, "updateCollectionView: not ready yet no cursor.");
-            // not ready!
-            return;
+
+    private boolean setupMessageCard(View hero) {
+        MessageCardView card = (MessageCardView) hero.findViewById(R.id.message_card);
+        if (card == null) {
+            LOGE(TAG, "Message card not found in UI (R.id.message_card).");
+            return false;
         }
+//        if (!PrefUtils.hasAnsweredLocalOrRemote(getActivity()) &&
+//                !TimeUtils.hasConferenceEnded(getActivity())) {
+//            // show the "in person" vs "remote" card
+//            setupLocalOrRemoteCard(card);
+//            return true;
+//        } else if (WiFiUtils.shouldOfferToSetupWifi(getActivity(), true)) {
+//            // show wifi setup card
+//            setupWifiOfferCard(card);
+//            return true;
+//        } else if (PrefUtils.shouldOfferIOExtended(getActivity(), true)) {
+//            // show the I/O extended card
+//            setupIOExtendedCard(card);
+//            return true;
+//        } else {
+            card.setVisibility(View.GONE);
+            return false;
+//        }
+    }
+
+    private void updateCollectionView(List<String> result) {
+
         LOGD(TAG, "SessionsFragment updating CollectionView... " + (mSessionDataIsFullReload ?
                 "(FULL RELOAD)" : "(light refresh)"));
-        mCursor.moveToPosition(-1);
-        int itemCount = mCursor.getCount();
 
-        //mMaxDataIndexAnimated = 0;
-
-        CollectionView.Inventory inv = null;
-        if (itemCount == 0) {
-            showEmptyView();
+        CollectionView.Inventory inv;
+        if (result.size() == 0) {
             inv = new CollectionView.Inventory();
         } else {
-            //hideEmptyView();
-            //inv = prepareInventory();
+            hideEmptyView();
+            inv = prepareInventory(result);
         }
 
         Parcelable state = null;
@@ -204,6 +425,72 @@ public class BestNearbyFragment extends Fragment implements
             mCollectionView.onRestoreInstanceState(state);
         }
         mSessionDataIsFullReload = false;
+    }
+
+    // Creates the CollectionView groups based on the cursor data.
+    private CollectionView.Inventory prepareInventory(List<String> result) {
+        LOGD(TAG, "Preparing collection view inventory.");
+
+        ArrayList<CollectionView.InventoryGroup> inventoryGroups =
+                new ArrayList<CollectionView.InventoryGroup>();
+
+        CollectionView.InventoryGroup heroGroup = null;
+
+
+        int nextGroupId = HERO_GROUP_ID + 1000; // to avoid conflict with the special hero group ID
+
+        int dataIndex = -1;
+
+        final boolean expandedMode = useExpandedMode();
+        final int displayCols = getResources().getInteger(expandedMode ?
+                R.integer.explore_2nd_level_grid_columns : R.integer.explore_1st_level_grid_columns);
+        LOGD(TAG, "Using " + displayCols + " columns.");
+        mPreloader.setDisplayCols(displayCols);
+
+        for (String a : result) {
+
+            CollectionView.InventoryGroup group = null;
+
+            if (heroGroup == null) {
+                group = heroGroup = new CollectionView.InventoryGroup(HERO_GROUP_ID)
+                        .setDisplayCols(1)  // hero item spans all columns
+                        .setShowHeader(false);
+            } else {
+                if(inventoryGroups.size() == 0){
+                    group = new CollectionView.InventoryGroup(nextGroupId++)
+                            .setDisplayCols(displayCols)
+                            .setShowHeader(false);
+                    inventoryGroups.add(group);
+                }else {
+                    group = inventoryGroups.get(0);
+                }
+            }
+
+            group.addItemWithCustomDataIndex(dataIndex);
+        }
+
+        // prepare the final groups list
+        ArrayList<CollectionView.InventoryGroup> groups = new ArrayList<CollectionView.InventoryGroup>();
+        if (heroGroup != null) {
+            groups.add(heroGroup); // start with the hero
+        }
+        groups.addAll(inventoryGroups); // then all future events
+
+        // finally, assemble the inventory and we're done
+        CollectionView.Inventory inventory = new CollectionView.Inventory();
+        for (CollectionView.InventoryGroup g : groups) {
+            inventory.addGroup(g);
+        }
+        return inventory;
+    }
+
+    private boolean useExpandedMode() {
+        return false;
+    }
+
+    private void hideEmptyView() {
+        mEmptyView.setVisibility(View.GONE);
+        mLoadingView.setVisibility(View.GONE);
     }
 
     private void showEmptyView() {
@@ -237,11 +524,6 @@ public class BestNearbyFragment extends Fragment implements
         }
     }
 
-    @Override
-    public void onLoaderReset(Loader<Cursor> cursorLoader) {
-
-    }
-
     public void reloadFromArguments(Bundle arguments) {
         if (arguments == null) {
             arguments = new Bundle();
@@ -253,26 +535,9 @@ public class BestNearbyFragment extends Fragment implements
         // save arguments so we can reuse it when reloading from content observer events
         mArguments = arguments;
 
-        LOGD(TAG, "SessionsFragment reloading from arguments: " + arguments);
-        mCurrentUri = arguments.getParcelable("_uri");
+        AsyncListViewLoader loader = new AsyncListViewLoader();
+        loader.execute("https://api.foursquare.com/v2/venues/search?client_id=PJ0YTLIJSKQVDYSJKD1TOH4SFAQUZYBD2PXIXVH3FOONWGZU&client_secret=K41YXRJTWQE311IFRGDZ1CGUXP5GHIJECYGQK4QXGA5PWYGM&v=20130815&ll=40.7,-74&limit=11");
 
-        if (mCurrentUri == null) {
-            // if no URI, default to all sessions URI
-            LOGD(TAG, "SessionsFragment did not get a URL, defaulting to all sessions.");
-            arguments.putParcelable("_uri", ScheduleContract.Sessions.CONTENT_URI);
-            mCurrentUri = ScheduleContract.Sessions.CONTENT_URI;
-        }
-
-        mSessionQueryToken = SessionsQuery.SEARCH_TOKEN;
-
-        reloadSessionData(true); // full reload
-
-    }
-
-    private void reloadSessionData(boolean fullReload) {
-        LOGD(TAG, "Reloading session data: " + (fullReload ? "FULL RELOAD" : "light refresh"));
-        mSessionDataIsFullReload = fullReload;
-        getLoaderManager().restartLoader(mSessionQueryToken, mArguments, BestNearbyFragment.this);
     }
 
     public boolean canCollectionViewScrollUp() {
@@ -285,6 +550,7 @@ public class BestNearbyFragment extends Fragment implements
 
     public interface Callbacks {
         public void onSessionSelected(String sessionId, View clickedView);
+
         public void onTagMetadataLoaded(TagMetadata metadata);
     }
 
@@ -307,7 +573,7 @@ public class BestNearbyFragment extends Fragment implements
 
         public void setDimens(int width, int height) {
             if (photoDimens == null) {
-                photoDimens = new int[] { width, height };
+                photoDimens = new int[]{width, height};
             }
         }
 
@@ -340,18 +606,75 @@ public class BestNearbyFragment extends Fragment implements
         }
     }
 
-    /**
-     * {link com.google.samples.apps.iosched.provider.ScheduleContract.Sessions}
-     * query parameters.
-     */
-    private interface SessionsQuery {
+    private class AsyncListViewLoader extends AsyncTask<String, Void, List<String>> {
 
-        int SEARCH_TOKEN = 0x3;
+        @Override
+        protected void onPostExecute(List<String> result) {
+            super.onPostExecute(result);
+            updateCollectionView(result);
+        }
 
+        @Override
+        protected void onPreExecute() {
+            super.onPreExecute();
+            showEmptyView();
+        }
 
-        String[] SEARCH_PROJECTION = {
-                BaseColumns._ID,
-                ScheduleContract.Sessions.SESSION_ID
-        };
+        @Override
+        protected List<String> doInBackground(String... params) {
+            List<String> result = new ArrayList<String>();
+
+            StringBuilder builder = new StringBuilder();
+
+            HttpClient client = new DefaultHttpClient();
+            HttpGet httpGet = new HttpGet(params[0]);
+
+            try {
+                HttpResponse response = client.execute(httpGet);
+                StatusLine statusLine = response.getStatusLine();
+                int statusCode = statusLine.getStatusCode();
+                if (statusCode == 200) {
+                    HttpEntity entity = response.getEntity();
+                    InputStream content = entity.getContent();
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(content));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        builder.append(line);
+                    }
+
+                    JSONObject jsObj = new JSONObject(builder.toString());
+                    JSONObject response1 = jsObj.getJSONObject("response");
+                    JSONArray array = response1.getJSONArray("venues");
+
+                    for (int i = 0; i < array.length(); i++) {
+
+                        result.add(convertContact(array.getJSONObject(i)));
+
+                    }
+
+                    return result;
+
+                }
+            } catch (ClientProtocolException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            return null;
+        }
+
+        private String convertContact(JSONObject obj) throws JSONException {
+            String name = obj.getString("name");
+
+            //return new Contact(name, surname, email, phoneNum);
+            return name;
+        }
+
     }
+
+
 }

@@ -65,7 +65,6 @@ public class CollectionView extends ListView {
         setDividerHeight(0);
         setItemsCanFocus(false);
         setChoiceMode(ListView.CHOICE_MODE_NONE);
-        setSelector(android.R.color.transparent);
 
         if (attrs != null) {
             final TypedArray xmlArgs = context.obtainStyledAttributes(attrs,
