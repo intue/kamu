@@ -2,8 +2,13 @@ package io.intue.kamu;
 
 
 import android.app.ActionBar;
+import android.location.Location;
 import android.os.Bundle;
 import android.view.View;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesClient;
+import com.google.android.gms.location.LocationClient;
 
 import io.intue.kamu.model.TagMetadata;
 import io.intue.kamu.util.AnalyticsManager;
@@ -12,7 +17,10 @@ import io.intue.kamu.util.UIUtils;
 import io.intue.kamu.widget.CollectionView;
 import io.intue.kamu.widget.DrawShadowFrameLayout;
 
-public class BestNearbyActivity extends BaseActivity implements BestNearbyFragment.Callbacks {
+public class BestNearbyActivity extends BaseActivity implements
+        BestNearbyFragment.Callbacks,
+        GooglePlayServicesClient.ConnectionCallbacks,
+        GooglePlayServicesClient.OnConnectionFailedListener{
 
     // How is this Activity being used?
     private static final int MODE_BEST_NEARBY = 0; // as top-level "Explore" screen
@@ -29,9 +37,13 @@ public class BestNearbyActivity extends BaseActivity implements BestNearbyFragme
     // time when the user last clicked "refresh" from the stale data butter bar
     private long mLastDataStaleUserActionTime = 0L;
 
+    // Stores the current instantiation of the location client in this object
+    private LocationClient mLocationClient;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         setContentView(R.layout.activity_best_nearby);
 
         getLPreviewUtils().trySetActionBar();
@@ -51,6 +63,37 @@ public class BestNearbyActivity extends BaseActivity implements BestNearbyFragme
         mButterBar = findViewById(R.id.butter_bar);
         mDrawShadowFrameLayout = (DrawShadowFrameLayout) findViewById(R.id.main_content);
         registerHideableHeaderView(mButterBar);
+
+        mLocationClient = new LocationClient(this, this, this);
+    }
+
+    /*
+     * Called when the Activity is no longer visible at all.
+     * Stop updates and disconnect.
+     */
+    @Override
+    public void onStop() {
+
+        // After disconnect() is called, the client is considered "dead".
+        mLocationClient.disconnect();
+
+        super.onStop();
+    }
+
+    /*
+     * Called when the Activity is restarted, even before it becomes visible.
+     */
+    @Override
+    public void onStart() {
+
+        super.onStart();
+
+        /*
+         * Connect the client. Don't re-start any requests here;
+         * instead, wait for onResume()
+         */
+        mLocationClient.connect();
+
     }
 
     @Override
@@ -64,8 +107,8 @@ public class BestNearbyActivity extends BaseActivity implements BestNearbyFragme
         mBestNearbyFra = (BestNearbyFragment) getFragmentManager().findFragmentById(
                 R.id.sessions_fragment);
         if (mBestNearbyFra != null && savedInstanceState == null) {
-            Bundle args = intentToFragmentArguments(getIntent());
-            mBestNearbyFra.reloadFromArguments(args);
+//            Bundle args = intentToFragmentArguments(getIntent());
+//            mBestNearbyFra.reloadFromArguments(args);
         }
 
         registerHideableHeaderView(findViewById(R.id.headerbar));
@@ -160,5 +203,22 @@ public class BestNearbyActivity extends BaseActivity implements BestNearbyFragme
         setProgressBarTopWhenActionBarShown(actionBarClearance + secondaryClearance);
         mDrawShadowFrameLayout.setShadowTopOffset(actionBarClearance + secondaryClearance);
         frag.setContentTopClearance(actionBarClearance + secondaryClearance + gridPadding);
+    }
+
+    @Override
+    public void onConnected(Bundle bundle) {
+        Location location = mLocationClient.getLastLocation();
+        mBestNearbyFra.reloadFromArguments(location);
+
+    }
+
+    @Override
+    public void onDisconnected() {
+
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+
     }
 }

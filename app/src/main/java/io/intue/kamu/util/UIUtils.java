@@ -75,7 +75,7 @@ public class UIUtils {
      * a session photo could not be downloaded (or while it is being downloaded)
      */
     public static final float SESSION_BG_COLOR_SCALE_FACTOR = 0.65f;
-    public static final float SESSION_PHOTO_SCRIM_ALPHA = 0.75f;
+    public static final float SESSION_PHOTO_SCRIM_ALPHA = 0.50f;
 
 
     public static final String TARGET_FORM_FACTOR_ACTIVITY_METADATA =

@@ -25,6 +25,7 @@ import android.content.Intent;
 import android.content.Loader;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.location.Location;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -211,7 +212,7 @@ public class BestNearbyFragment extends Fragment implements
         //final long sessionEnd = 334343433;
         //final String roomName = "SessionsQuery.ROOM_NAME";
         int sessionColor = 0;
-        sessionColor = sessionColor == 0 ? getResources().getColor(R.color.default_session_color)
+        sessionColor = sessionColor == 0 ? getResources().getColor(R.color.transparent)
                 : sessionColor;
         //final String snippet = "SessionsQuery.SNIPPET";
         final Spannable styledSnippet =  null;
@@ -239,7 +240,7 @@ public class BestNearbyFragment extends Fragment implements
 
         if (sessionColor == 0) {
             // use default
-            sessionColor = getResources().getColor(R.color.default_session_color);
+            sessionColor = getResources().getColor(R.color.transparent);
         }
         sessionColor = UIUtils.scaleSessionColorToDefaultBG(sessionColor);
 
@@ -542,19 +543,25 @@ public class BestNearbyFragment extends Fragment implements
         }
     }
 
-    public void reloadFromArguments(Bundle arguments) {
-        if (arguments == null) {
-            arguments = new Bundle();
-        } else {
-            // since we might make changes, don't meddle with caller's copy
-            arguments = (Bundle) arguments.clone();
-        }
-
-        // save arguments so we can reuse it when reloading from content observer events
-        mArguments = arguments;
+    public void reloadFromArguments(Location location) {
+//        if (arguments == null) {
+//            arguments = new Bundle();
+//        } else {
+//            // since we might make changes, don't meddle with caller's copy
+//            arguments = (Bundle) arguments.clone();
+//        }
+//
+//        // save arguments so we can reuse it when reloading from content observer events
+//        mArguments = arguments;
 
         AsyncListViewLoader loader = new AsyncListViewLoader();
-        loader.execute("https://api.foursquare.com/v2/venues/explore?ll=1.3721836,103.8947728&limit=5&venuePhotos=1&client_id=PJ0YTLIJSKQVDYSJKD1TOH4SFAQUZYBD2PXIXVH3FOONWGZU&client_secret=K41YXRJTWQE311IFRGDZ1CGUXP5GHIJECYGQK4QXGA5PWYGM&v=20130815");
+        String url = "https://api.foursquare.com/v2/venues/explore?ll="
+                + location.getLatitude() + "," + location.getLongitude()
+                +"&limit=15&venuePhotos=1&client_id=PJ0YTLIJSKQVDYSJKD1TOH4SFAQUZYBD2PXIXVH3FOONWGZU"
+                +"&client_secret=K41YXRJTWQE311IFRGDZ1CGUXP5GHIJECYGQK4QXGA5PWYGM"
+                +"&v=20130815";
+
+        loader.execute(url);
 
     }
 
@@ -691,16 +698,26 @@ public class BestNearbyFragment extends Fragment implements
             JSONObject venue = obj.getJSONObject("venue");
             JSONObject photos = venue.getJSONObject("photos");
             JSONArray photosGroup = photos.getJSONArray("groups");
-            JSONObject photDetails = photosGroup.getJSONObject(0).getJSONArray("items").getJSONObject(0);
-            String prefix = photDetails.getString("prefix");
-            String suffix = photDetails.getString("suffix");
 
             String id = venue.getString("id");
             String name = venue.getString("name");
             JSONObject location = venue.getJSONObject("location");
-            String address = location.getString("address");
-            String photoUrl = prefix + "cap400" + suffix;
+
+            String address = null;
+            if(location.has("address")){
+                address = location.getString("address");
+            }
+
             int distance = location.getInt("distance");
+
+            String photoUrl = null;
+
+            if(photosGroup.length() > 0){
+                JSONObject photDetails = photosGroup.getJSONObject(0).getJSONArray("items").getJSONObject(0);
+                String prefix = photDetails.getString("prefix");
+                String suffix = photDetails.getString("suffix");
+                photoUrl = prefix + "cap400" + suffix;
+            }
 
             //return new Contact(name, surname, email, phoneNum);
             return new Venue(id, name, distance, address, photoUrl);

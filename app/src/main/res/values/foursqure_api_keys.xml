@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="foursqure_client_id" emplateMergeStrategy="preserve" translatable="false">PJ0YTLIJSKQVDYSJKD1TOH4SFAQUZYBD2PXIXVH3FOONWGZU</string>
+    <string name="foursqure_client_secret" emplateMergeStrategy="preserve" translatable="false">K41YXRJTWQE311IFRGDZ1CGUXP5GHIJECYGQK4QXGA5PWYGM</string>
+    <string name="foursqure_version" emplateMergeStrategy="preserve" translatable="false">20130815</string>
+</resources>
