@@ -60,6 +60,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import io.intue.kamu.model.TagMetadata;
+import io.intue.kamu.model.Venue;
 import io.intue.kamu.provider.ScheduleContract;
 import io.intue.kamu.widget.CollectionView;
 import io.intue.kamu.widget.CollectionViewCallbacks;
@@ -121,6 +122,8 @@ public class BestNearbyFragment extends Fragment implements
     // behavior when load finishes: if true, this is a full reload (for example, because filters
     // have been changed); if not, it's just a refresh because data has changed.
     private boolean mSessionDataIsFullReload = false;
+
+    private List<Venue> mresult;
 
 
     private static Callbacks sDummyCallbacks = new Callbacks() {
@@ -190,43 +193,47 @@ public class BestNearbyFragment extends Fragment implements
 //            return;
 //        }
 
-        final String sessionId = "SessionID";
+        if(mresult == null){
+            return;
+        }
+        Venue result = mresult.get(dataIndex);
+
+        final String sessionId = result.getId();
         if (sessionId == null) {
             return;
         }
 
         // first, read session info from cursor and put it in convenience variables
-        final String sessionTitle = "SessionsQuery.TITLE";
-        final String speakerNames = "SessionsQuery.SPEAKER_NAMES";
-        final String sessionAbstract = "SessionsQuery.ABSTRACT";
-        final long sessionStart = 44454544;
-        final long sessionEnd = 334343433;
-        final String roomName = "SessionsQuery.ROOM_NAME";
+        final String sessionTitle = result.getName();
+        //final String speakerNames = "SessionsQuery.SPEAKER_NAMES";
+        //final String sessionAbstract = "SessionsQuery.ABSTRACT";
+        //final long sessionStart = 44454544;
+        //final long sessionEnd = 334343433;
+        //final String roomName = "SessionsQuery.ROOM_NAME";
         int sessionColor = 0;
         sessionColor = sessionColor == 0 ? getResources().getColor(R.color.default_session_color)
                 : sessionColor;
-        final String snippet = "SessionsQuery.SNIPPET";
+        //final String snippet = "SessionsQuery.SNIPPET";
         final Spannable styledSnippet =  null;
         final boolean starred = false;
-        final String[] tags = "A,B,C".split(",");
+        //final String[] tags = "A,B,C".split(",");
 
         // now let's compute a few pieces of information from the data, which we will use
         // later to decide what to render where
         final boolean hasLivestream = false;
         final long now = UIUtils.getCurrentTime(context);
-        final boolean happeningNow = now >= sessionStart && now <= sessionEnd;
+        final boolean happeningNow = false;
 
         // text that says "LIVE" if session is live, or empty if session is not live
-        final String liveNowText = hasLivestream ? " " + UIUtils.getLiveBadgeText(context,
-                sessionStart, sessionEnd) : "";
+        //final String liveNowText =  "";
 
         // get reference to all the views in the layout we will need
         final TextView titleView = (TextView) view.findViewById(R.id.session_title);
         final TextView subtitleView = (TextView) view.findViewById(R.id.session_subtitle);
         final TextView shortSubtitleView = (TextView) view.findViewById(R.id.session_subtitle_short);
         final TextView snippetView = (TextView) view.findViewById(R.id.session_snippet);
-        final TextView abstractView = (TextView) view.findViewById(R.id.session_abstract);
-        final TextView categoryView = (TextView) view.findViewById(R.id.session_category);
+        //final TextView abstractView = (TextView) view.findViewById(R.id.session_abstract);
+        //final TextView categoryView = (TextView) view.findViewById(R.id.session_category);
         final View boxView = view.findViewById(R.id.info_box);
         final View sessionTargetView = view.findViewById(R.id.session_target);
 
@@ -267,7 +274,7 @@ public class BestNearbyFragment extends Fragment implements
             photoView.setBackgroundColor(sessionColor);
         }
 
-        String photo = "http://sereedmedia.com/srmwp/wp-content/uploads/kitten.jpg";
+        String photo = result.getPhotoUrl();
         if (!TextUtils.isEmpty(photo)) {
             mImageLoader.loadImage(photo, photoView, true /*crop*/);
         } else {
@@ -280,9 +287,9 @@ public class BestNearbyFragment extends Fragment implements
 
         // render subtitle into either the subtitle view, or the short subtitle view, as available
         if (subtitleView != null) {
-            subtitleView.setText("subtitleView");
+            subtitleView.setText(result.getAddress());
         } else if (shortSubtitleView != null) {
-            shortSubtitleView.setText("shortSubtitleView");
+            shortSubtitleView.setText(result.getAddress());
         }
 
         // render category
@@ -399,8 +406,12 @@ public class BestNearbyFragment extends Fragment implements
 //        }
     }
 
-    private void updateCollectionView(List<String> result) {
+    private void updateCollectionView() {
 
+        if(mresult == null){
+            return;
+        }
+        List<Venue> result = mresult;
         LOGD(TAG, "SessionsFragment updating CollectionView... " + (mSessionDataIsFullReload ?
                 "(FULL RELOAD)" : "(light refresh)"));
 
@@ -409,7 +420,7 @@ public class BestNearbyFragment extends Fragment implements
             inv = new CollectionView.Inventory();
         } else {
             hideEmptyView();
-            inv = prepareInventory(result);
+            inv = prepareInventory();
         }
 
         Parcelable state = null;
@@ -428,7 +439,13 @@ public class BestNearbyFragment extends Fragment implements
     }
 
     // Creates the CollectionView groups based on the cursor data.
-    private CollectionView.Inventory prepareInventory(List<String> result) {
+    private CollectionView.Inventory prepareInventory() {
+
+        if(mresult == null){
+            return new CollectionView.Inventory();
+        }
+        List<Venue> result = mresult;
+
         LOGD(TAG, "Preparing collection view inventory.");
 
         ArrayList<CollectionView.InventoryGroup> inventoryGroups =
@@ -447,8 +464,9 @@ public class BestNearbyFragment extends Fragment implements
         LOGD(TAG, "Using " + displayCols + " columns.");
         mPreloader.setDisplayCols(displayCols);
 
-        for (String a : result) {
+        for (Venue a : result) {
 
+            dataIndex++;
             CollectionView.InventoryGroup group = null;
 
             if (heroGroup == null) {
@@ -536,7 +554,7 @@ public class BestNearbyFragment extends Fragment implements
         mArguments = arguments;
 
         AsyncListViewLoader loader = new AsyncListViewLoader();
-        loader.execute("https://api.foursquare.com/v2/venues/search?client_id=PJ0YTLIJSKQVDYSJKD1TOH4SFAQUZYBD2PXIXVH3FOONWGZU&client_secret=K41YXRJTWQE311IFRGDZ1CGUXP5GHIJECYGQK4QXGA5PWYGM&v=20130815&ll=40.7,-74&limit=11");
+        loader.execute("https://api.foursquare.com/v2/venues/explore?ll=1.3721836,103.8947728&limit=5&venuePhotos=1&client_id=PJ0YTLIJSKQVDYSJKD1TOH4SFAQUZYBD2PXIXVH3FOONWGZU&client_secret=K41YXRJTWQE311IFRGDZ1CGUXP5GHIJECYGQK4QXGA5PWYGM&v=20130815");
 
     }
 
@@ -606,12 +624,13 @@ public class BestNearbyFragment extends Fragment implements
         }
     }
 
-    private class AsyncListViewLoader extends AsyncTask<String, Void, List<String>> {
+    private class AsyncListViewLoader extends AsyncTask<String, Void, List<Venue>> {
 
         @Override
-        protected void onPostExecute(List<String> result) {
+        protected void onPostExecute(List<Venue> result) {
             super.onPostExecute(result);
-            updateCollectionView(result);
+            mresult = result;
+            updateCollectionView();
         }
 
         @Override
@@ -621,8 +640,8 @@ public class BestNearbyFragment extends Fragment implements
         }
 
         @Override
-        protected List<String> doInBackground(String... params) {
-            List<String> result = new ArrayList<String>();
+        protected List<Venue> doInBackground(String... params) {
+            List<Venue> result = new ArrayList<Venue>();
 
             StringBuilder builder = new StringBuilder();
 
@@ -645,11 +664,12 @@ public class BestNearbyFragment extends Fragment implements
 
                     JSONObject jsObj = new JSONObject(builder.toString());
                     JSONObject response1 = jsObj.getJSONObject("response");
-                    JSONArray array = response1.getJSONArray("venues");
+                    JSONArray groups = response1.getJSONArray("groups");
+                    JSONArray items = groups.getJSONObject(0).getJSONArray("items");
 
-                    for (int i = 0; i < array.length(); i++) {
+                    for (int i = 0; i < items.length(); i++) {
 
-                        result.add(convertContact(array.getJSONObject(i)));
+                        result.add(convertContact(items.getJSONObject(i)));
 
                     }
 
@@ -667,11 +687,23 @@ public class BestNearbyFragment extends Fragment implements
             return null;
         }
 
-        private String convertContact(JSONObject obj) throws JSONException {
-            String name = obj.getString("name");
+        private Venue convertContact(JSONObject obj) throws JSONException {
+            JSONObject venue = obj.getJSONObject("venue");
+            JSONObject photos = venue.getJSONObject("photos");
+            JSONArray photosGroup = photos.getJSONArray("groups");
+            JSONObject photDetails = photosGroup.getJSONObject(0).getJSONArray("items").getJSONObject(0);
+            String prefix = photDetails.getString("prefix");
+            String suffix = photDetails.getString("suffix");
+
+            String id = venue.getString("id");
+            String name = venue.getString("name");
+            JSONObject location = venue.getJSONObject("location");
+            String address = location.getString("address");
+            String photoUrl = prefix + "cap400" + suffix;
+            int distance = location.getInt("distance");
 
             //return new Contact(name, surname, email, phoneNum);
-            return name;
+            return new Venue(id, name, distance, address, photoUrl);
         }
 
     }
