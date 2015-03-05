@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="glide-3.2.0a">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/third_party/glide/library/libs/glide-3.2.0a.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
